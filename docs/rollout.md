@@ -9,40 +9,99 @@ bundle → fill in placeholders → Secrets (once) → database step → gateway
 
 ## 1. AWS prerequisites (once)
 
-1. In the AWS console, **Amazon Bedrock → Model access** in **us-east-1**: make sure the
-   Claude models in `deploy/base/config.yaml` are enabled for your account. The first
-   time Anthropic models are used, an account admin may need to submit the use-case form.
-2. Create the credential LiteLLM will use:
-   - **Production: an IAM user with an access key.** Create a dedicated IAM user (e.g.
-     `litellm-gateway`) with no console access and attach this policy. The `us.`
-     inference profiles route requests to several US regions, so the foundation-model
-     resources use `*` for the region.
+Everything here is in **us-east-1**. Creating IAM users, access keys and Bedrock API keys
+is free; Bedrock charges only for the tokens the models process.
 
-     ```json
-     {
-       "Version": "2012-10-17",
-       "Statement": [
-         {
-           "Sid": "InvokeClaudeThroughUsProfiles",
-           "Effect": "Allow",
-           "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-           "Resource": [
-             "arn:aws:bedrock:us-east-1:REPLACE_ME_AWS_ACCOUNT_ID:inference-profile/us.anthropic.claude-sonnet-5",
-             "arn:aws:bedrock:us-east-1:REPLACE_ME_AWS_ACCOUNT_ID:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
-             "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-5",
-             "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0"
-           ]
-         }
-       ]
-     }
-     ```
+### Enable the models
 
-     If you change the models in `config.yaml`, change the policy to match. Then create
-     an access key for the user. Rotate it every 90 days (see operations.md).
-   - **Testing: a Bedrock API key.** **Amazon Bedrock → API keys → Generate long-term
-     API key**, with an expiry of 30 days or less. It starts with `ABSK`.
-3. Make sure the cluster can reach `https://bedrock-runtime.us-east-1.amazonaws.com`
-   (directly, or through your proxy: see step 4).
+Bedrock models are on by default; AWS retired the old model-access page. The exception
+is Anthropic models older than Claude Opus 4.7, which need a one-time **First Time Use**
+form before they can be called:
+
+- `bedrock/claude-sonnet` (Claude Sonnet 5) needs no form.
+- `bedrock/claude-haiku` (Claude Haiku 4.5) needs it: **Amazon Bedrock → Model catalog →
+  Claude Haiku 4.5**, then submit the use-case details (a short description and your
+  company website). Access is usually granted at once. While it is pending, calls fail
+  with `AccessDeniedException`. Submitting from an AWS Organization's management account
+  covers all its member accounts.
+
+### Production: an IAM user that can only call these models
+
+AWS recommends against long-term API keys in production, so give LiteLLM a dedicated IAM
+user with an access key and this policy. The `us.` inference profiles route requests to
+several US regions, so the foundation-model resources use `*` for the region. If you change
+the models in `config.yaml`, change the policy to match.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "InvokeClaudeThroughUsProfiles",
+      "Effect": "Allow",
+      "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+      "Resource": [
+        "arn:aws:bedrock:us-east-1:REPLACE_ME_AWS_ACCOUNT_ID:inference-profile/us.anthropic.claude-sonnet-5",
+        "arn:aws:bedrock:us-east-1:REPLACE_ME_AWS_ACCOUNT_ID:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-5",
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0"
+      ]
+    }
+  ]
+}
+```
+
+With the AWS CLI, logged in as an admin, after saving the JSON above as
+`litellm-bedrock-policy.json`:
+
+```sh
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+sed -i.bak "s/REPLACE_ME_AWS_ACCOUNT_ID/$ACCOUNT/" litellm-bedrock-policy.json
+
+aws iam create-user --user-name litellm-gateway
+aws iam put-user-policy --user-name litellm-gateway \
+  --policy-name bedrock-invoke-claude --policy-document file://litellm-bedrock-policy.json
+aws iam create-access-key --user-name litellm-gateway
+```
+
+Or in the console: **IAM → Users → Create user** (no console access), **Add permissions →
+Create inline policy** with the JSON, then **Security credentials → Create access key**
+(use case "Application running outside AWS").
+
+`create-access-key` prints `AccessKeyId` and `SecretAccessKey`: they go into the Secret as
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` (step 5). Keep them in your password
+manager and delete the printed output. Rotate the key every 90 days (operations.md).
+
+### Testing: a Bedrock API key
+
+**Amazon Bedrock → API keys → Generate long-term API key**, with an expiry of 30 days or
+less (not "Never expires"). Copy it at once; it starts with `ABSK` and is shown only once.
+It goes into the Secret as `AWS_BEARER_TOKEN_BEDROCK`, or into `local-test/.env`.
+
+AWS creates an IAM user `BedrockAPIKey-...` for the key, with the broad
+`AmazonBedrockLimitedAccess` policy. To limit the key to these two models, attach the
+policy above to that user and detach `AmazonBedrockLimitedAccess`.
+
+### Check AWS on its own
+
+Before LiteLLM is involved, from a machine that can reach AWS:
+
+```sh
+# Bedrock API key:
+curl -s https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-sonnet-5/converse \
+  -H "Authorization: Bearer $AWS_BEARER_TOKEN_BEDROCK" -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":[{"text":"Reply with: pong"}]}]}'
+
+# IAM access key (uses AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY from the environment):
+aws bedrock-runtime converse --region us-east-1 --model-id us.anthropic.claude-sonnet-5 \
+  --messages '[{"role":"user","content":[{"text":"Reply with: pong"}]}]'
+```
+
+A reply with `pong` means the credential and model are ready. Repeat with
+`us.anthropic.claude-haiku-4-5-20251001-v1:0` to check the Haiku form went through.
+
+Finally, make sure the cluster can reach `https://bedrock-runtime.us-east-1.amazonaws.com`
+(directly, or through your proxy: see step 4).
 
 ## 2. Import the images into Harbor
 
@@ -104,7 +163,7 @@ Every value that depends on your environment is a `REPLACE_ME_*` placeholder:
 | `REPLACE_ME_CORP_LITELLM_CIDR` | `deploy/overlays/<env>/networkpolicies.yaml` | The corporate LiteLLM's address range (change port `443` there if needed) |
 | `REPLACE_ME_CORP_MODEL_SONNET`, `REPLACE_ME_CORP_MODEL_HAIKU` | `deploy/base/config.yaml` | Model names on the corporate LiteLLM (`GET <CORP_LITELLM_URL>/v1/models`) |
 | `REPLACE_ME_HTTPS_PROXY` | `deploy/overlays/prod/proxy-ca-patch.yaml` (optional) | Only if you enable the proxy patch below |
-| `REPLACE_ME_AWS_ACCOUNT_ID` | the IAM policy in step 1 (not a file) | Your AWS account ID |
+| `REPLACE_ME_AWS_ACCOUNT_ID` | the IAM policy in step 1 (not a file; the CLI commands there fill it in) | Your AWS account ID |
 
 Also check the Bedrock model IDs in `deploy/base/config.yaml` against what is enabled in
 your account (**Bedrock → Cross-region inference**).
