@@ -41,3 +41,15 @@ def test_release_checks_images_are_public():
     step = RELEASE_STEPS["Check images can be pulled without logging in"]
     assert "docker logout ghcr.io" in step["run"]
     assert "Change visibility" in ROLLOUT or "Change visibility" in (ROOT / "README.md").read_text()
+
+
+def test_aws_setup_matches_current_bedrock():
+    """AWS retired the Model access page; older Anthropic models (Haiku 4.5) need the
+    one-time First Time Use form, and the IAM user can be created from the CLI."""
+    step1 = ROLLOUT.split("## 1. AWS prerequisites", 1)[1].split("## 2.", 1)[0]
+    assert "Model access" not in step1
+    assert "First Time Use" in step1 and "Model catalog" in step1
+    assert "aws iam create-user --user-name litellm-gateway" in step1
+    assert "aws iam create-access-key" in step1
+    assert "AmazonBedrockLimitedAccess" in step1
+    assert "bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-sonnet-5/converse" in step1
