@@ -1,0 +1,35 @@
+# OPTIONAL — not applied by default. Use it if LiteLLM must reach Bedrock or the
+# corporate LiteLLM through an HTTP proxy, or if they use a company CA certificate.
+# Enable: add "- path: proxy-ca-patch.yaml" under patches: in kustomization.yaml, and
+# create the company-ca ConfigMap. SSL_CERT_FILE REPLACES the image's CA bundle, so the
+# file must hold the public roots too (Bedrock uses a public certificate):
+#   docker run --rm --entrypoint cat <harbor>/airgaped-litellm:<tag> /etc/ssl/certs/ca-certificates.crt > ca.crt
+#   cat company-ca.crt >> ca.crt
+#   kubectl -n <namespace> create configmap company-ca --from-file=ca.crt=ca.crt
+# Remove the proxy env vars if you only need the CA (or the other way round).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm
+spec:
+  template:
+    spec:
+      containers:
+        - name: litellm
+          env:
+            - name: HTTPS_PROXY
+              value: REPLACE_ME_HTTPS_PROXY        # e.g. http://proxy.example.internal:3128
+            - name: NO_PROXY             # add the corporate LiteLLM's host if it is reached directly
+              value: litellm-postgres,localhost,127.0.0.1,.svc,.cluster.local
+            - name: SSL_CERT_FILE
+              value: /etc/company-ca/ca.crt
+            - name: REQUESTS_CA_BUNDLE
+              value: /etc/company-ca/ca.crt
+          volumeMounts:
+            - name: company-ca
+              mountPath: /etc/company-ca
+              readOnly: true
+      volumes:
+        - name: company-ca
+          configMap:
+            name: company-ca

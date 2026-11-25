@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# kind end-to-end environment (ci/kind-e2e.sh): the real base plus a mock upstream.
+# Secrets and the mock-upstream ConfigMap are created by the script.
+namespace: litellm-e2e
+resources:
+  - ../../deploy/base
+  - mock.yaml
+patches:
+  - patch: |-
+      $patch: delete
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: litellm
+images:
+  - name: ghcr.io/abralock/airgaped-litellm
+    newName: airgaped-litellm
+    newTag: ci
+  - name: ghcr.io/abralock/airgaped-litellm-postgres
+    newName: e2e/postgres
+    newTag: pinned

@@ -1,0 +1,79 @@
+# Offline end-to-end stack. The only network is internal: no route to the internet.
+# Run through ci/offline-test/run.sh.
+name: airgaped-litellm-offline
+
+x-litellm: &litellm
+  image: ${IMAGE:-airgaped-litellm:ci}
+  networks: [airgap]
+  # External names resolve through the mock's DNS recorder, which points them at a tarpit.
+  dns: [172.31.251.10]
+  volumes:
+    - ../../deploy/base/config.yaml:/app/config.yaml:ro
+  env_file:
+    - ${CREDS_FILE:?set by run.sh}
+  environment: &litellm-env
+    LITELLM_MASTER_KEY: sk-offline-master
+    LITELLM_SALT_KEY: sk-offline-salt-0123456789
+    DATABASE_URL: postgresql://litellm:litellm-test@postgres:5432/litellm
+    CORP_LITELLM_URL: http://mock:8080
+    CORP_LITELLM_KEY: sk-corp-test
+    AWS_BEDROCK_RUNTIME_ENDPOINT: http://mock:8080
+
+services:
+  postgres:
+    image: ${POSTGRES_UPSTREAM:?from versions.env}
+    networks: [airgap]
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: litellm-test
+      POSTGRES_DB: litellm
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "litellm"]
+      interval: 2s
+      retries: 30
+
+  mock:
+    image: ${IMAGE:-airgaped-litellm:ci}
+    user: "0"   # DNS on 53 and the tarpit on 80/443 need low ports
+    networks:
+      airgap:
+        ipv4_address: 172.31.251.10
+    entrypoint: ["python", "/ci/mock_upstream.py", "--port", "8080", "--dns-ip", "172.31.251.10"]
+    volumes:
+      - ../:/ci:ro
+
+  migrate:
+    <<: *litellm
+    command: ["--skip_server_startup"]  # same as the Kubernetes migrate Job
+    depends_on:
+      postgres: {condition: service_healthy}
+      mock: {condition: service_started}   # DNS recorder must be up first
+
+  litellm:
+    <<: *litellm
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      <<: *litellm-env
+      DISABLE_SCHEMA_UPDATE: "true"
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      mock: {condition: service_started}
+
+  tester:
+    image: ${IMAGE:-airgaped-litellm:ci}
+    networks: [airgap]
+    entrypoint: ["python", "/ci/offline-test/checks.py"]
+    environment:
+      LITELLM_MASTER_KEY: sk-offline-master
+      EXPECT_AUTH: ${EXPECT_AUTH:?set by run.sh}
+    volumes:
+      - ../:/ci:ro
+      - ../../scripts:/scripts:ro
+    profiles: [test]
+
+networks:
+  airgap:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.31.251.0/24

@@ -1,0 +1,29 @@
+# NetworkPolicies only take effect if the cluster's network plugin enforces them
+# (e.g. Calico, Cilium). Overlays add external egress and ingress to LiteLLM.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: litellm-egress-internal
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: litellm
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: litellm-postgres
+      ports:
+        - port: 5432
+          protocol: TCP
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

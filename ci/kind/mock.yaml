@@ -1,0 +1,60 @@
+# Stands in for both the corporate LiteLLM and the Bedrock runtime.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock
+  labels:
+    app.kubernetes.io/name: mock
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mock
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mock
+    spec:
+      containers:
+        - name: mock
+          image: ghcr.io/abralock/airgaped-litellm
+          command: ["python", "/mock/mock_upstream.py", "--port", "8080"]
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: mock
+              mountPath: /mock
+      volumes:
+        - name: mock
+          configMap:
+            name: mock-upstream
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock
+spec:
+  selector:
+    app.kubernetes.io/name: mock
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+# Plays the role of the overlays' litellm-egress-external policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: litellm-egress-mock
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: litellm
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mock
+      ports:
+        - port: 8080
+          protocol: TCP

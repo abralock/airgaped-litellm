@@ -1,0 +1,57 @@
+# Every key must expire. LiteLLM applies the 90-day default to keys from /key/generate,
+# but not to the key /user/new creates, and a key's owner can clear its expiry with
+# /key/update {"duration": null}. This job gives any key without an expiry 90 days.
+# (UI login sessions are stored with a 24-hour expiry and are not touched.)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: litellm-key-expiry
+  labels:
+    app.kubernetes.io/name: litellm-key-expiry
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: litellm-key-expiry
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: key-expiry
+              image: ghcr.io/abralock/airgaped-litellm-postgres
+              command: ["psql", "-v", "ON_ERROR_STOP=1", "-h", "litellm-postgres", "-U", "litellm", "-d", "litellm", "-c"]
+              args:
+                - >-
+                  UPDATE "LiteLLM_VerificationToken"
+                  SET expires = now() + interval '90 days'
+                  WHERE expires IS NULL
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: litellm-postgres
+                      key: POSTGRES_PASSWORD
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi

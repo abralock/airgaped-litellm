@@ -1,0 +1,57 @@
+# LiteLLM gateway configuration. Mounted at /app/config.yaml from the litellm-config ConfigMap.
+# Credentials never go here: they come from the litellm-secrets Secret as environment variables.
+
+model_list:
+  # --- AWS Bedrock (us-east-1), direct --------------------------------------------------
+  # Replace the model IDs with the inference profile IDs enabled in your AWS account
+  # (Bedrock console -> Cross-region inference). Newer Claude models need the "us." profile.
+  # AWS credentials: AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (prod), or
+  # AWS_BEARER_TOKEN_BEDROCK (a Bedrock API key, test). LiteLLM uses whichever is set.
+  - model_name: bedrock/claude-sonnet
+    litellm_params:
+      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      aws_region_name: us-east-1
+  - model_name: bedrock/claude-haiku
+    litellm_params:
+      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      aws_region_name: us-east-1
+
+  # --- Corporate LiteLLM, through the upstream key in CORP_LITELLM_KEY ------------------
+  # Replace with the model names your corporate LiteLLM exposes (GET <CORP_LITELLM_URL>/v1/models).
+  - model_name: corp/claude-sonnet
+    litellm_params:
+      model: litellm_proxy/REPLACE_ME_CORP_MODEL_SONNET
+      api_base: os.environ/CORP_LITELLM_URL
+      api_key: os.environ/CORP_LITELLM_KEY
+  - model_name: corp/claude-haiku
+    litellm_params:
+      model: litellm_proxy/REPLACE_ME_CORP_MODEL_HAIKU
+      api_base: os.environ/CORP_LITELLM_URL
+      api_key: os.environ/CORP_LITELLM_KEY
+
+router_settings:
+  # If Bedrock fails, retry the same request through the corporate LiteLLM.
+  fallbacks:
+    - bedrock/claude-sonnet: [corp/claude-sonnet]
+    - bedrock/claude-haiku: [corp/claude-haiku]
+
+litellm_settings:
+  drop_params: true
+  # New users (invited through the UI) can create, view and delete their own keys.
+  default_internal_user_params:
+    user_role: internal_user
+    max_budget: 50
+    budget_duration: 30d
+  # Keys created without limits get these...
+  default_key_generate_params:
+    duration: 90d
+    max_budget: 50
+  # ...and no self-service key may exceed them.
+  upperbound_key_generate_params:
+    duration: 90d
+    max_budget: 50
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+  store_model_in_db: false

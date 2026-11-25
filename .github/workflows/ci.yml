@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]   # tags are tested by release.yml, which calls this workflow
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: Image and offline test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t airgaped-litellm:ci .
+      - name: Image checks
+        run: tests/image_test.sh airgaped-litellm:ci
+      - name: Offline end-to-end test (no internet)
+        run: ci/offline-test/run.sh
+
+  manifests:
+    name: Manifest and release-script tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q
+
+  kind-e2e:
+    name: Kubernetes end-to-end (kind)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: helm/kind-action@v1
+        with:
+          install_only: true
+      - name: Build image
+        run: docker build -t airgaped-litellm:ci .
+      - name: kind end-to-end
+        run: ci/kind-e2e.sh
+
+  actionlint:
+    name: Lint workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color

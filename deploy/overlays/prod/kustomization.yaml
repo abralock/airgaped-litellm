@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# prod environment. Before applying: replace every REPLACE_ME_* here and in
+# deploy/base/config.yaml, and create the two Secrets (docs/rollout.md).
+namespace: litellm-prod
+resources:
+  - ../../base
+  - networkpolicies.yaml
+patches:
+  - path: ingress-patch.yaml
+images:
+  # Your Harbor project, e.g. harbor.example.internal/platform/airgaped-litellm
+  - name: ghcr.io/abralock/airgaped-litellm
+    newName: REPLACE_ME_HARBOR/airgaped-litellm
+  - name: ghcr.io/abralock/airgaped-litellm-postgres
+    newName: REPLACE_ME_HARBOR/airgaped-litellm-postgres

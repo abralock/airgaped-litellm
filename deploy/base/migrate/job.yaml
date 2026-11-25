@@ -1,0 +1,66 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: litellm-migrate   # renamed to litellm-migrate-<release tag> by scripts/stamp-release.sh
+  labels:
+    app.kubernetes.io/name: litellm-migrate
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: litellm-migrate
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # On a first install Postgres starts at the same time as this Job.
+        - name: wait-for-postgres
+          image: ghcr.io/abralock/airgaped-litellm
+          command:
+            - python
+            - -c
+            - |
+              import socket, sys, time
+              for _ in range(120):
+                  try:
+                      socket.create_connection(("litellm-postgres", 5432), 2).close()
+                      sys.exit(0)
+                  except OSError:
+                      time.sleep(5)
+              sys.exit("litellm-postgres:5432 not reachable after 10 minutes")
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      containers:
+        - name: migrate
+          image: ghcr.io/abralock/airgaped-litellm
+          args: ["--skip_server_startup"]
+          envFrom:
+            - secretRef:
+                name: litellm-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi

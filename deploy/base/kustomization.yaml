@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Base for every environment. Secrets are NOT here: create litellm-secrets and
+# litellm-postgres with kubectl (see docs/rollout.md).
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: airgaped-litellm
+resources:
+  - litellm.yaml
+  - postgres
+  - backup.yaml
+  - key-expiry.yaml
+  - networkpolicies.yaml
+  - ingress.yaml
+configMapGenerator:
+  - name: litellm-config
+    files:
+      - config.yaml
+images:
+  - name: ghcr.io/abralock/airgaped-litellm
+    newTag: unreleased
+  - name: ghcr.io/abralock/airgaped-litellm-postgres
+    newTag: unreleased

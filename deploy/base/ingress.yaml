@@ -1,0 +1,17 @@
+# Host, ingress class and TLS are set by each overlay.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: litellm
+spec:
+  rules:
+    - host: REPLACE_ME_HOSTNAME
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: litellm
+                port:
+                  number: 4000

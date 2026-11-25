@@ -1,0 +1,51 @@
+# Only enforced if the cluster's network plugin supports NetworkPolicy (e.g. Calico, Cilium).
+# Kubernetes cannot match hostnames, so these use address ranges (CIDR, e.g. 10.20.0.0/16).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: litellm-egress-external
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: litellm
+  policyTypes: ["Egress"]
+  egress:
+    # AWS Bedrock (us-east-1). NetworkPolicy matches the destination address, before any NAT:
+    #  - through an HTTP proxy: the proxy's address, and its port (often 3128 or 8080) below;
+    #  - over VPN / Direct Connect to a Bedrock interface endpoint: the endpoint's addresses;
+    #  - straight out to the internet: AWS's us-east-1 ranges, or 0.0.0.0/0 for any HTTPS.
+    - to:
+        - ipBlock:
+            cidr: REPLACE_ME_BEDROCK_EGRESS_CIDR
+      ports:
+        - port: 443
+          protocol: TCP
+    # Corporate LiteLLM: its destination address. Change the port if it does not listen on 443.
+    # With HTTPS_PROXY set, this traffic goes through the proxy too unless its host is in NO_PROXY.
+    - to:
+        - ipBlock:
+            cidr: REPLACE_ME_CORP_LITELLM_CIDR
+      ports:
+        - port: 443
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: litellm-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: litellm
+  policyTypes: ["Ingress"]
+  ingress:
+    # The namespace your ingress controller runs in (e.g. ingress-nginx).
+    # If traffic reaches pods straight from a load balancer, replace the
+    # namespaceSelector with an ipBlock of the load balancer's addresses.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: REPLACE_ME_INGRESS_NAMESPACE
+      ports:
+        - port: 4000
+          protocol: TCP
