@@ -9,7 +9,7 @@ model_list:
   # AWS_BEARER_TOKEN_BEDROCK (a Bedrock API key, test). LiteLLM uses whichever is set.
   - model_name: bedrock/claude-sonnet
     litellm_params:
-      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      model: bedrock/us.anthropic.claude-sonnet-5
       aws_region_name: us-east-1
   - model_name: bedrock/claude-haiku
     litellm_params:

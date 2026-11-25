@@ -1,0 +1,39 @@
+# Try the gateway on your own PC against real AWS Bedrock (needs internet).
+#   1. Put your Bedrock API key (and optionally the corporate LiteLLM) in .env
+#   2. docker compose up -d        3. open http://localhost:4001/ui  (user: admin, password: LITELLM_MASTER_KEY)
+#   4. docker compose down -v      (when done; -v also deletes the test database)
+name: litellm-local
+
+services:
+  postgres:
+    image: postgres:17.12-alpine
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: local-only
+      POSTGRES_DB: litellm
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "litellm"]
+      interval: 2s
+      retries: 30
+
+  migrate:   # same as the Kubernetes database step
+    image: ghcr.io/abralock/airgaped-litellm:v1.110.3-r2
+    command: ["--skip_server_startup"]
+    environment:
+      DATABASE_URL: postgresql://litellm:local-only@postgres:5432/litellm
+    env_file: .env
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  litellm:
+    image: ghcr.io/abralock/airgaped-litellm:v1.110.3-r2
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    ports: ["127.0.0.1:4001:4000"]   # only reachable from this PC
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      DATABASE_URL: postgresql://litellm:local-only@postgres:5432/litellm
+      DISABLE_SCHEMA_UPDATE: "true"
+    env_file: .env
+    depends_on:
+      migrate: {condition: service_completed_successfully}

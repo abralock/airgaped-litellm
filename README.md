@@ -30,9 +30,25 @@ Both images are `linux/amd64` and `linux/arm64`. Tags are `v<litellm-version>-r<
 example `v1.110.3-r1`.
 
 The image sets `LITELLM_OFFLINE_MODE=true`, `LITELLM_TELEMETRY_DISABLED=true` and
-`LITELLM_LOCAL_MODEL_COST_MAP=True`, so LiteLLM makes no requests of its own (price list
+`LITELLM_LOCAL_MODEL_COST_MAP=True` and `CHECKPOINT_DISABLE=1`, so LiteLLM makes no requests of its own (price list
 downloads, version checks, telemetry). CI proves this on every build by running the image
 on a network with no route to the internet.
+
+## Try it on your PC first
+
+`local-test/` runs the published image and a Postgres with Docker on your own computer,
+against real AWS Bedrock (this needs internet, unlike the real deployment):
+
+```sh
+cd local-test
+cp .env.example .env      # add a Bedrock API key (ABSK...) and your own master/salt keys
+docker compose up -d
+LITELLM_MASTER_KEY=<your master key> python3 ../scripts/smoke_test.py --base-url http://localhost:4001
+```
+
+Then open http://localhost:4001/ui (user `admin`, password: your master key), create a key
+and call the models as in [docs/users.md](docs/users.md). `docker compose down -v` removes
+everything. The port is 4001, and it only listens on `127.0.0.1`.
 
 ## Docs
 
