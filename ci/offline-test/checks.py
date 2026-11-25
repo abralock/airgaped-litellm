@@ -20,7 +20,7 @@ EXPECT_AUTH = os.environ["EXPECT_AUTH"]
 STARTED = time.monotonic()
 
 MODELS = {"bedrock/claude-sonnet", "bedrock/claude-haiku", "corp/claude-sonnet", "corp/claude-haiku"}
-SONNET_PROFILE = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+SONNET_PROFILE = "us.anthropic.claude-sonnet-5"
 
 state = {}
 
